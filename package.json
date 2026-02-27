@@ -1,0 +1,14 @@
+{
+  "name": "spars-platform",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run -w @spars/api dev & npm run -w @spars/admin dev & npm run -w @spars/collect dev",
+    "build": "npm run -w @spars/api build && npm run -w @spars/admin build && npm run -w @spars/collect build",
+    "prisma:generate": "npm run -w @spars/api prisma:generate",
+    "prisma:migrate": "npm run -w @spars/api prisma:migrate",
+    "prisma:studio": "npm run -w @spars/api prisma:studio"
+  }
+}

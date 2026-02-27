@@ -1,0 +1,383 @@
+generator client { provider = "prisma-client-js" }
+datasource db { provider = "mysql" url = env("DATABASE_URL") }
+
+model Organization {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  name String
+  code String @unique @db.VarChar(64)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tools Tool[]
+  facilities Facility[]
+  memberships OrganizationMembership[]
+  roles Role[]
+  translations Translation[]
+  auditLogs AuditLog[]
+}
+
+model User {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  email String @unique @db.VarChar(320)
+  fullName String? @db.VarChar(255)
+  status UserStatus @default(active)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  identities UserIdentity[]
+  memberships OrganizationMembership[]
+  roleAssignments UserRoleAssignment[]
+  visits SupervisionVisit[]
+  auditLogs AuditLog[]
+}
+
+enum UserStatus { active inactive }
+
+model UserIdentity {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  userId BigInt @db.UnsignedBigInt
+  provider IdentityProvider
+  providerSub String @db.VarChar(255)
+  providerEmail String? @db.VarChar(320)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields:[userId], references:[id], onDelete: Cascade)
+
+  @@unique([provider, providerSub])
+  @@index([userId])
+}
+
+enum IdentityProvider { google }
+
+model OrganizationMembership {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  orgId BigInt @db.UnsignedBigInt
+  userId BigInt @db.UnsignedBigInt
+  status MembershipStatus @default(active)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields:[orgId], references:[id], onDelete: Cascade)
+  user User @relation(fields:[userId], references:[id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([userId])
+}
+
+enum MembershipStatus { active inactive }
+
+model Permission {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  code String @unique @db.VarChar(128)
+  name String
+  rolePermissions RolePermission[]
+}
+
+model Role {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  orgId BigInt @db.UnsignedBigInt
+  code String @db.VarChar(64)
+  name String
+
+  org Organization @relation(fields:[orgId], references:[id], onDelete: Cascade)
+  rolePermissions RolePermission[]
+  assignments UserRoleAssignment[]
+
+  @@unique([orgId, code], name: "orgId_code")
+}
+
+model RolePermission {
+  roleId BigInt @db.UnsignedBigInt
+  permissionId BigInt @db.UnsignedBigInt
+
+  role Role @relation(fields:[roleId], references:[id], onDelete: Cascade)
+  permission Permission @relation(fields:[permissionId], references:[id], onDelete: Cascade)
+
+  @@id([roleId, permissionId], name: "roleId_permissionId")
+}
+
+model Tool {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  orgId BigInt @db.UnsignedBigInt
+  name String
+  code String @db.VarChar(64)
+  defaultLocale String @default("en") @db.VarChar(10)
+  enabledLocales Json
+  status ToolStatus @default(active)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields:[orgId], references:[id], onDelete: Cascade)
+  versions ToolVersion[]
+  roleAssignments UserRoleAssignment[]
+
+  @@unique([orgId, code])
+  @@index([orgId])
+}
+
+enum ToolStatus { active inactive }
+
+model ToolVersion {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  toolId BigInt @db.UnsignedBigInt
+  versionLabel String @db.VarChar(64)
+  status ToolVersionStatus @default(draft)
+  publishedAt DateTime?
+  createdByUserId BigInt? @db.UnsignedBigInt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tool Tool @relation(fields:[toolId], references:[id], onDelete: Cascade)
+  forms Form[]
+  logicRules LogicRule[]
+  calculatedFields CalculatedField[]
+  indicators Indicator[]
+  visits SupervisionVisit[]
+
+  createdBy User? @relation(fields:[createdByUserId], references:[id], onDelete: SetNull)
+
+  @@unique([toolId, versionLabel])
+  @@index([toolId, status])
+}
+
+enum ToolVersionStatus { draft published retired }
+
+model Form {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  toolVersionId BigInt @db.UnsignedBigInt
+  name String
+  code String @db.VarChar(64)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  toolVersion ToolVersion @relation(fields:[toolVersionId], references:[id], onDelete: Cascade)
+  sections Section[]
+
+  @@unique([toolVersionId, code])
+  @@index([toolVersionId])
+}
+
+model Section {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  formId BigInt @db.UnsignedBigInt
+  parentSectionId BigInt? @db.UnsignedBigInt
+  code String @db.VarChar(64)
+  sortOrder Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  form Form @relation(fields:[formId], references:[id], onDelete: Cascade)
+  parent Section? @relation("SectionToSection", fields:[parentSectionId], references:[id], onDelete: SetNull)
+  children Section[] @relation("SectionToSection")
+  questions Question[]
+
+  @@unique([formId, code])
+  @@index([formId])
+  @@index([parentSectionId])
+}
+
+model Question {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  sectionId BigInt @db.UnsignedBigInt
+  code String @unique @db.VarChar(128)
+  questionType QuestionType
+  isRequiredDefault Boolean @default(false)
+  allowNa Boolean @default(false)
+  naRequiresReason Boolean @default(false)
+  constraintsJson Json?
+  scoringJson Json?
+  sortOrder Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  section Section @relation(fields:[sectionId], references:[id], onDelete: Cascade)
+  options QuestionOption[]
+  responses VisitResponse[]
+
+  @@index([sectionId])
+}
+
+enum QuestionType { boolean number decimal text textarea date single_select multi_select grid computed }
+
+model QuestionOption {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  questionId BigInt @db.UnsignedBigInt
+  value String @db.VarChar(255)
+  sortOrder Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  question Question @relation(fields:[questionId], references:[id], onDelete: Cascade)
+  @@index([questionId])
+}
+
+model LogicRule {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  toolVersionId BigInt @db.UnsignedBigInt
+  name String
+  triggerExprJson Json
+  actionsJson Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  toolVersion ToolVersion @relation(fields:[toolVersionId], references:[id], onDelete: Cascade)
+  @@index([toolVersionId])
+}
+
+model CalculatedField {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  toolVersionId BigInt @db.UnsignedBigInt
+  code String @db.VarChar(128)
+  outputType CalcOutputType
+  formulaJson Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  toolVersion ToolVersion @relation(fields:[toolVersionId], references:[id], onDelete: Cascade)
+  @@unique([toolVersionId, code])
+  @@index([toolVersionId])
+}
+enum CalcOutputType { number percent score }
+
+model Indicator {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  toolVersionId BigInt @db.UnsignedBigInt
+  code String @db.VarChar(128)
+  indicatorType IndicatorType
+  definitionJson Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  toolVersion ToolVersion @relation(fields:[toolVersionId], references:[id], onDelete: Cascade)
+  @@unique([toolVersionId, code])
+  @@index([toolVersionId])
+}
+enum IndicatorType { module domain overall custom }
+
+model Translation {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  orgId BigInt @db.UnsignedBigInt
+  entityType TranslationEntityType
+  entityId BigInt @db.UnsignedBigInt
+  locale String @db.VarChar(10)
+  field String @db.VarChar(64)
+  value String @db.LongText
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields:[orgId], references:[id], onDelete: Cascade)
+
+  @@unique([entityType, entityId, locale, field])
+  @@index([orgId, locale])
+}
+enum TranslationEntityType { tool form section question option rule indicator ui }
+
+model Facility {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  orgId BigInt @db.UnsignedBigInt
+  code String @db.VarChar(64)
+  name String
+  attributesJson Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields:[orgId], references:[id], onDelete: Cascade)
+  visits SupervisionVisit[]
+
+  @@unique([orgId, code])
+  @@index([orgId])
+}
+
+model SupervisionVisit {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  orgId BigInt @db.UnsignedBigInt
+  toolVersionId BigInt @db.UnsignedBigInt
+  facilityId BigInt @db.UnsignedBigInt
+  collectorUserId BigInt @db.UnsignedBigInt
+  visitDate DateTime @db.Date
+  status VisitStatus @default(draft)
+  deviceId String? @db.VarChar(128)
+  submittedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org Organization @relation(fields:[orgId], references:[id], onDelete: Cascade)
+  toolVersion ToolVersion @relation(fields:[toolVersionId], references:[id], onDelete: Restrict)
+  facility Facility @relation(fields:[facilityId], references:[id], onDelete: Restrict)
+  collector User @relation(fields:[collectorUserId], references:[id], onDelete: Restrict)
+  responses VisitResponse[]
+  scores VisitScore[]
+
+  @@index([orgId, facilityId, visitDate])
+  @@index([toolVersionId, status])
+}
+enum VisitStatus { draft submitted locked }
+
+model VisitResponse {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  visitId BigInt @db.UnsignedBigInt
+  questionId BigInt @db.UnsignedBigInt
+  answerJson Json?
+  isNa Boolean @default(false)
+  naReason String? @db.LongText
+  isHidden Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visit SupervisionVisit @relation(fields:[visitId], references:[id], onDelete: Cascade)
+  question Question @relation(fields:[questionId], references:[id], onDelete: Restrict)
+
+  @@unique([visitId, questionId], name: "visitId_questionId")
+  @@index([visitId])
+  @@index([questionId])
+}
+
+model VisitScore {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  visitId BigInt @db.UnsignedBigInt
+  indicatorCode String @db.VarChar(128)
+  valueNumber Decimal? @db.Decimal(10,4)
+  valuePercent Decimal? @db.Decimal(10,4)
+  valueScore Decimal? @db.Decimal(10,4)
+  detailsJson Json?
+  createdAt DateTime @default(now())
+
+  visit SupervisionVisit @relation(fields:[visitId], references:[id], onDelete: Cascade)
+
+  @@unique([visitId, indicatorCode], name: "visitId_indicatorCode")
+  @@index([visitId])
+}
+
+model AuditLog {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  orgId BigInt @db.UnsignedBigInt
+  userId BigInt? @db.UnsignedBigInt
+  action String @db.VarChar(64)
+  entityType String @db.VarChar(64)
+  entityId BigInt? @db.UnsignedBigInt
+  detailsJson Json?
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields:[orgId], references:[id], onDelete: Cascade)
+  user User? @relation(fields:[userId], references:[id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+}
+
+model UserRoleAssignment {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  orgId BigInt @db.UnsignedBigInt
+  userId BigInt @db.UnsignedBigInt
+  roleId BigInt @db.UnsignedBigInt
+  toolId BigInt? @db.UnsignedBigInt
+  scopeJson Json?
+  createdAt DateTime @default(now())
+
+  org Organization @relation(fields:[orgId], references:[id], onDelete: Cascade)
+  user User @relation(fields:[userId], references:[id], onDelete: Cascade)
+  role Role @relation(fields:[roleId], references:[id], onDelete: Cascade)
+  tool Tool? @relation(fields:[toolId], references:[id], onDelete: Cascade)
+
+  @@index([orgId, userId])
+  @@index([orgId, toolId])
+}
