@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { InviteUserDto } from './dto/invite-user.dto';
+import { Prisma } from '@prisma/client';
 import { AssignRoleDto } from './dto/assign-role.dto';
 
 @Injectable()
@@ -53,7 +54,7 @@ export class OrgsService {
     }
 
     const assignment = await this.prisma.userRoleAssignment.create({
-      data: { orgId, userId, roleId: role.id, toolId, scopeJson: null },
+      data: { orgId, userId, roleId: role.id, toolId, scopeJson: Prisma.DbNull },
     });
 
     return { ok: true, assignmentId: String(assignment.id) };
