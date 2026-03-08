@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateVisitDto } from './dto/create-visit.dto';
 import { UpsertResponseDto } from './dto/upsert-response.dto';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class CollectorService {
@@ -37,7 +38,7 @@ export class CollectorService {
     await this.prisma.visitResponse.upsert({
       where: { visitId_questionId: { visitId, questionId } },
       update: { answerJson: dto.answerJson ?? undefined, isNa: dto.isNa ?? undefined, naReason: dto.naReason ?? undefined, isHidden: dto.isHidden ?? undefined },
-      create: { visitId, questionId, answerJson: dto.answerJson ?? null, isNa: dto.isNa ?? false, naReason: dto.naReason ?? null, isHidden: dto.isHidden ?? false },
+      create: { visitId, questionId, answerJson: dto.answerJson ?? Prisma.DbNull, isNa: dto.isNa ?? false, naReason: dto.naReason ?? null, isHidden: dto.isHidden ?? false },
     });
 
     return { ok: true };
