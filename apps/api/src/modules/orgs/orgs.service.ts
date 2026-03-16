@@ -54,7 +54,13 @@ export class OrgsService {
     }
 
     const assignment = await this.prisma.userRoleAssignment.create({
-      data: { orgId, userId, roleId: role.id, toolId, scopeJson: Prisma.DbNull },
+      data: {
+        orgId,
+        userId,
+        roleId: role.id,
+        toolId,
+        scopeJson: dto.scope ?? Prisma.DbNull,
+      },
     });
 
     return { ok: true, assignmentId: String(assignment.id) };

@@ -104,6 +104,7 @@ function Users({ jwt }: { jwt: string }) {
   const [roleUserId, setRoleUserId] = useState('');
   const [roleCode, setRoleCode] = useState('ORGADMIN');
   const [toolId, setToolId] = useState('');
+  const [scopeJson, setScopeJson] = useState('');
   const [err, setErr] = useState('');
 
   const load = async () => {
@@ -126,7 +127,9 @@ function Users({ jwt }: { jwt: string }) {
   const assign = async () => {
     setErr('');
     try {
-      await apiPost(`/orgs/${orgId}/users/${roleUserId}/roles`, jwt, { roleCode, toolId: toolId || undefined });
+      let scope: any = undefined;
+      if (scopeJson.trim()) scope = JSON.parse(scopeJson);
+      await apiPost(`/orgs/${orgId}/users/${roleUserId}/roles`, jwt, { roleCode, toolId: toolId || undefined, scope });
       await load();
     } catch (e: any) { setErr(e.message || String(e)); }
   };
@@ -156,6 +159,7 @@ function Users({ jwt }: { jwt: string }) {
         <input value={roleUserId} onChange={e=>setRoleUserId(e.target.value)} placeholder="userId" style={{ width: 120 }} />
         <input value={roleCode} onChange={e=>setRoleCode(e.target.value)} placeholder="roleCode (e.g. ORGADMIN)" style={{ width: 220 }} />
         <input value={toolId} onChange={e=>setToolId(e.target.value)} placeholder="toolId (optional)" style={{ width: 160 }} />
+        <input value={scopeJson} onChange={e=>setScopeJson(e.target.value)} placeholder='scope JSON (optional, e.g. {"departmentId":"MCH"})' style={{ width: 360 }} />
         <button onClick={assign} disabled={!jwt || !roleUserId || !roleCode}>Assign</button>
       </div>
 

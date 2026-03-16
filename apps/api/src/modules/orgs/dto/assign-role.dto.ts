@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsObject, IsOptional, IsString } from 'class-validator';
 
 export class AssignRoleDto {
   @IsString()
@@ -7,4 +7,8 @@ export class AssignRoleDto {
   @IsOptional()
   @IsString()
   toolId?: string; // optional tool scope
+
+  @IsOptional()
+  @IsObject()
+  scope?: Record<string, unknown>;
 }
