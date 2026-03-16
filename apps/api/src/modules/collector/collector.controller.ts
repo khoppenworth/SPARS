@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { CollectorService } from './collector.service';
@@ -11,6 +11,11 @@ import { UpsertResponseDto } from './dto/upsert-response.dto';
 @Controller('/api/v1/collector')
 export class CollectorController {
   constructor(private readonly collector: CollectorService) {}
+
+  @Get('/orgs/:orgId/questionnaires')
+  listQuestionnaires(@Req() req: any, @Param('orgId') orgId: string) {
+    return this.collector.listQuestionnaires(req.user.userId, BigInt(orgId));
+  }
 
   @Post('/visits')
   createVisit(@Req() req: any, @Body() dto: CreateVisitDto) {
