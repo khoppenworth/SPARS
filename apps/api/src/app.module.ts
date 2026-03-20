@@ -7,9 +7,10 @@ import { ToolsModule } from './modules/tools/tools.module';
 import { CollectorModule } from './modules/collector/collector.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { OrgsModule } from './modules/orgs/orgs.module';
+import { TranslationsModule } from './modules/translations/translations.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, RbacModule, OrgsModule, ToolsModule, CollectorModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, RbacModule, OrgsModule, ToolsModule, CollectorModule, TranslationsModule],
   controllers: [AppController],
 })
 export class AppModule {}

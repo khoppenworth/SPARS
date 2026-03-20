@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt.guard';
 import { CollectorService } from './collector.service';
 import { CreateVisitDto } from './dto/create-visit.dto';
 import { UpsertResponseDto } from './dto/upsert-response.dto';
+import { BatchUpsertResponsesDto } from './dto/batch-upsert-responses.dto';
 
 @ApiTags('collector')
 @ApiBearerAuth()
@@ -11,11 +12,6 @@ import { UpsertResponseDto } from './dto/upsert-response.dto';
 @Controller('/api/v1/collector')
 export class CollectorController {
   constructor(private readonly collector: CollectorService) {}
-
-  @Get('/orgs/:orgId/questionnaires')
-  listQuestionnaires(@Req() req: any, @Param('orgId') orgId: string) {
-    return this.collector.listQuestionnaires(req.user.userId, BigInt(orgId));
-  }
 
   @Post('/visits')
   createVisit(@Req() req: any, @Body() dto: CreateVisitDto) {
@@ -31,4 +27,10 @@ export class CollectorController {
   submit(@Req() req: any, @Param('visitId') visitId: string) {
     return this.collector.submit(req.user.userId, BigInt(visitId));
   }
+
+  @Post('/visits/:visitId/responses/batch')
+  batchResponses(@Req() req: any, @Param('visitId') visitId: string, @Body() dto: BatchUpsertResponsesDto) {
+    return this.collector.batchUpsertResponses(req.user.userId, BigInt(visitId), dto);
+  }
+
 }

@@ -43,3 +43,39 @@ npm run dev
 ```
 
 API health: `http://localhost:3000/api/v1/health`
+
+
+## Step 5 status
+This repo now includes:
+- conditional rules
+- calculated fields and indicators
+- initial scoring engine
+- translation endpoints and basic UI locale selectors
+
+It is now i18n-capable in implementation, but not yet fully locale-resolved at render time across all Builder/Collector views.
+
+
+## Step 6 status
+Collector now supports:
+- assigned tool listing from RBAC assignments
+- localized published package download
+- local package storage
+- local draft visit storage
+- dynamic questionnaire rendering from the downloaded package
+
+
+## Step 8 status
+Collector now includes:
+- section-by-section form navigation
+- required/NA validation
+- local retry queue for failed sync/submit operations
+- date question rendering
+
+
+## Step 9 status
+Collector now includes:
+- client-side conditional hiding based on logic rules
+- multi-select rendering
+- grid/table rendering
+- progress indicator
+- expanded deployment guide for production rollout

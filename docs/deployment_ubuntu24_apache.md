@@ -345,3 +345,315 @@ VALUES (1,1,<ROLE_ID_FOR_ORGADMIN>,NULL,NULL,NOW());
 ```
 
 Then login via Google and you can manage users in Admin UI at `/admin/users`.
+
+
+## Step 16) Permissions required for Step 2 UI
+To use `/admin/tools` features:
+- Creating tools and draft versions requires `tool.write` (org-wide or scoped)
+- Publishing versions requires `tool.publish`
+Assign these by giving yourself `ORGADMIN` or `SUPERADMIN`.
+
+
+## Step 17) Step 3 Builder permissions
+Builder endpoints require `tool.write` and only edit **draft** tool versions.
+Suggested workflow:
+1) Create tool + draft version in `/admin/tools`
+2) Add forms/sections/questions/options in `/admin/builder`
+3) Publish the version in `/admin/tools`
+4) Collector downloads the published package.
+
+
+## Step 18) Step 4 logic rules
+You can now create logic rules in `/admin/builder` for draft versions.
+
+Supported rule expression operators:
+- `eq`, `ne`, `and`, `or`, `not`
+
+Supported actions:
+- `setNA` on a `questionCode` or `sectionCode`
+- `hide` on a `questionCode` or `sectionCode`
+- `require` on a `questionCode`
+
+Rules are applied server-side when a visit is submitted, and the resulting `isNa` / `isHidden` state is snapshotted back onto `visit_responses`.
+
+
+## Step 19) Step 5 scoring + i18n
+Step 5 adds:
+- Calculated fields and indicators in the Builder
+- Initial NA-aware scoring path on submit
+- Translation API and Builder UI for populating the `translations` table
+- Simple locale selectors in Admin and Collector
+
+Current scoring implementation:
+- `percentFromQuestions`
+- `averageCalculatedFields`
+
+Current i18n implementation:
+- translation storage and retrieval
+- UI locale selectors
+- manual translation entry in Builder
+
+Still pending for full multilingual runtime:
+- resolving translated labels directly in Admin/Collector form rendering
+- user-profile locale persistence in backend
+
+
+## Step 20) Step 6 collector workflow
+Collector now supports:
+- `GET /api/v1/collector/assigned-tools`
+- `GET /api/v1/collector/tool-versions/:versionId/package-localized?locale=fr`
+
+Operational flow:
+1) Assign a user a role scoped to a tool (or org-wide)
+2) Publish a tool version
+3) In `/collect`, open Assigned Tools and download the localized package
+4) Open the package locally and fill the form
+5) Save draft locally in the browser
+
+Current limitation:
+- Step 6 renders forms dynamically and saves local drafts, but it does not yet push the entire rendered form back through a full sync queue to server-generated visits/responses. That is the next enhancement layer.
+
+
+## Step 22) Step 8 validation + retry queue
+Collector now adds:
+- section-by-section navigation
+- required-field validation before moving forward or syncing/submitting
+- NA reason validation
+- local sync queue for failed response syncs or failed submit calls
+- manual retry screen at `/collect/sync`
+
+Operational improvement:
+Users can continue working even if the submit or sync call fails; the failed operation is queued locally and can be retried later.
+
+
+---
+
+# Step 9 production deployment expansion
+
+This section supplements the earlier guide and is written to be executable for a real Ubuntu 24.04 rollout behind a reverse proxy on `spars.systemsdelight.com`.
+
+## 1) Recommended production topology
+
+### Edge / Reverse Proxy
+Your external reverse proxy should:
+- terminate TLS
+- forward traffic to the Ubuntu host running Apache
+- preserve:
+  - `Host`
+  - `X-Forwarded-For`
+  - `X-Forwarded-Proto`
+
+### Ubuntu host
+Runs:
+- Apache2
+- Node.js / NestJS API
+- MySQL 8
+- static files for `/admin` and `/collect`
+
+### URL map
+- `https://spars.systemsdelight.com/admin`
+- `https://spars.systemsdelight.com/collect`
+- `https://spars.systemsdelight.com/api`
+- `https://spars.systemsdelight.com/api/docs`
+
+## 2) Firewall and host hardening
+
+Recommended:
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+```
+
+Also:
+- keep MySQL bound to `127.0.0.1`
+- disable password SSH if you use keys only
+- keep OS patched:
+```bash
+sudo apt-get update && sudo apt-get upgrade -y
+```
+
+## 3) MySQL operational settings
+
+Edit:
+`/etc/mysql/mysql.conf.d/mysqld.cnf`
+
+Recommended:
+- `bind-address = 127.0.0.1`
+- keep InnoDB defaults
+- ensure enough file descriptors if usage grows
+
+Restart:
+```bash
+sudo systemctl restart mysql
+```
+
+Check:
+```bash
+sudo systemctl status mysql --no-pager
+```
+
+## 4) Node/NPM runtime verification
+
+Check the runtime being used by systemd:
+```bash
+which node
+node -v
+npm -v
+```
+
+Ensure `/usr/bin/node` is valid because the service file uses that path.
+
+## 5) Build and release discipline
+
+Recommended release workflow:
+1. test locally
+2. commit to GitHub
+3. SSH to server
+4. pull latest
+5. run migrations
+6. rebuild
+7. copy frontend assets
+8. restart API
+9. reload Apache
+10. smoke test
+
+Commands:
+```bash
+cd /opt/spars/repo
+sudo -u spars git pull
+sudo -u spars npm install
+sudo -u spars npm run prisma:generate
+cd apps/api
+sudo -u spars npx prisma migrate deploy
+cd ../..
+sudo -u spars npm run build
+sudo rm -rf /var/www/spars-admin/* /var/www/spars-collect/*
+sudo cp -r /opt/spars/repo/apps/admin/dist/* /var/www/spars-admin/
+sudo cp -r /opt/spars/repo/apps/collect/dist/* /var/www/spars-collect/
+sudo chown -R www-data:www-data /var/www/spars-admin /var/www/spars-collect
+sudo systemctl restart spars-api
+sudo systemctl reload apache2
+```
+
+## 6) Apache operational notes
+
+After changing config:
+```bash
+sudo apachectl configtest
+sudo systemctl reload apache2
+```
+
+Useful modules:
+```bash
+sudo a2enmod proxy proxy_http rewrite headers
+sudo systemctl restart apache2
+```
+
+## 7) Systemd operational notes
+
+Check service:
+```bash
+sudo systemctl status spars-api --no-pager
+```
+
+Live logs:
+```bash
+sudo journalctl -u spars-api -f
+```
+
+Restart:
+```bash
+sudo systemctl restart spars-api
+```
+
+## 8) Smoke test checklist after every deployment
+
+From the server:
+```bash
+curl -s http://127.0.0.1:3000/api/v1/health
+```
+
+From your browser:
+- `/admin`
+- `/collect`
+- `/api/docs`
+
+Functional checks:
+1. Login with invited user
+2. Load tools in admin
+3. Download a localized package in collector
+4. Open package
+5. Save draft
+6. Sync draft
+7. Submit draft
+8. Verify visit scores in DB
+
+## 9) Database verification queries
+
+### Check visits
+```sql
+SELECT id, orgId, toolVersionId, facilityId, visitDate, status, submittedAt
+FROM supervision_visits
+ORDER BY id DESC
+LIMIT 20;
+```
+
+### Check responses
+```sql
+SELECT visitId, questionId, isNa, isHidden, updatedAt
+FROM visit_responses
+ORDER BY id DESC
+LIMIT 50;
+```
+
+### Check scores
+```sql
+SELECT visitId, indicatorCode, valuePercent, valueScore, createdAt
+FROM visit_scores
+ORDER BY id DESC
+LIMIT 50;
+```
+
+### Check translations
+```sql
+SELECT entityType, entityId, locale, field, value
+FROM translations
+ORDER BY id DESC
+LIMIT 50;
+```
+
+## 10) Backup and restore
+
+### Backup
+```bash
+mkdir -p /opt/spars/backups/db
+mysqldump -u app_rw -p'CHANGE_ME_STRONG' spars | gzip > /opt/spars/backups/db/spars_$(date +%F_%H%M%S).sql.gz
+```
+
+### Restore
+```bash
+gunzip -c /opt/spars/backups/db/<backup>.sql.gz | mysql -u app_rw -p spars
+```
+
+## 11) Reverse proxy notes specific to collector sync
+
+Because collector now does:
+- batch response upload
+- submit calls
+- retry queue
+
+Set generous upstream limits:
+- request timeout: at least 120s
+- body size: enough for large JSON payloads
+- no response caching on `/api`
+
+## 12) Known production gaps after Step 9
+
+Still recommended before wide rollout:
+- replace pasted JWT with real Google Sign-In
+- add richer scoring formulas
+- enforce backend-side completeness checks beyond UI validation
+- add audit dashboards for sync failures
+- add monitoring/alerting

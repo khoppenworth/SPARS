@@ -1,0 +1,18 @@
+SPARS Platform Consolidated GitHub Package
+
+This archive contains the accumulated codebase through Step 10 packaging,
+intended to replace the earlier Step 1 zip in GitHub.
+
+Included progression:
+- RBAC + user management
+- tool/version lifecycle
+- builder (forms/sections/questions/options)
+- logic rules
+- scoring + indicators
+- i18n plumbing + translations
+- localized collector packages
+- local draft workflow
+- sync + submit to backend
+- validation + retry queue
+- multi-select/grid/conditional rendering
+- expanded deployment guide

@@ -1,29 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RuleEngineService, ResponseState } from './rule-engine.service';
+import { ScoringEngineService } from './scoring-engine.service';
 import { CreateVisitDto } from './dto/create-visit.dto';
 import { UpsertResponseDto } from './dto/upsert-response.dto';
-import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class CollectorService {
-  constructor(private readonly prisma: PrismaService) {}
-
-  private extractDepartmentIds(scope: unknown): string[] {
-    if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return [];
-    const scopeObj = scope as Record<string, unknown>;
-    const departmentId = scopeObj.departmentId;
-    const departmentIds = scopeObj.departmentIds;
-
-    const ids = new Set<string>();
-    if (typeof departmentId === 'string' && departmentId.trim()) ids.add(departmentId);
-    if (Array.isArray(departmentIds)) {
-      for (const id of departmentIds) {
-        if (typeof id === 'string' && id.trim()) ids.add(id);
-      }
-    }
-
-    return [...ids];
-  }
+  constructor(private readonly prisma: PrismaService, private readonly ruleEngine: RuleEngineService, private readonly scoringEngine: ScoringEngineService) {}
 
   async createVisit(userId: string, dto: CreateVisitDto) {
     const uid = BigInt(userId);
@@ -55,7 +39,7 @@ export class CollectorService {
     await this.prisma.visitResponse.upsert({
       where: { visitId_questionId: { visitId, questionId } },
       update: { answerJson: dto.answerJson ?? undefined, isNa: dto.isNa ?? undefined, naReason: dto.naReason ?? undefined, isHidden: dto.isHidden ?? undefined },
-      create: { visitId, questionId, answerJson: dto.answerJson ?? Prisma.DbNull, isNa: dto.isNa ?? false, naReason: dto.naReason ?? null, isHidden: dto.isHidden ?? false },
+      create: { visitId, questionId, answerJson: dto.answerJson ?? null, isNa: dto.isNa ?? false, naReason: dto.naReason ?? null, isHidden: dto.isHidden ?? false },
     });
 
     return { ok: true };
@@ -63,96 +47,141 @@ export class CollectorService {
 
   async submit(userId: string, visitId: bigint) {
     const uid = BigInt(userId);
-    const visit = await this.prisma.supervisionVisit.findUnique({ where: { id: visitId }, include: { toolVersion: { include: { indicators: true } } } });
+    const visit = await this.prisma.supervisionVisit.findUnique({
+      where: { id: visitId },
+      include: {
+        toolVersion: {
+          include: {
+            indicators: true,
+            logicRules: true,
+            calculatedFields: true,
+          },
+        },
+        responses: {
+          include: {
+            question: {
+              include: { section: true },
+            },
+          },
+        },
+      },
+    });
     if (!visit) throw new NotFoundException('Visit not found');
     if (visit.collectorUserId !== uid) throw new ForbiddenException('Not your visit');
     if (visit.status !== 'draft') throw new BadRequestException('Already submitted');
 
     const now = new Date();
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.supervisionVisit.update({ where: { id: visitId }, data: { status: 'submitted', submittedAt: now } });
+    const state: ResponseState[] = visit.responses.map(r => ({
+      questionCode: r.question.code,
+      answerJson: r.answerJson as any,
+      isNa: r.isNa,
+      naReason: r.naReason,
+      isHidden: r.isHidden,
+      isRequired: r.question.isRequiredDefault,
+      sectionCode: r.question.section.code,
+    }));
 
-      // Placeholder score
-      const overall = visit.toolVersion.indicators.find(i => i.indicatorType === 'overall');
-      if (overall) {
-        await tx.visitScore.upsert({
-          where: { visitId_indicatorCode: { visitId, indicatorCode: overall.code } },
-          update: { valuePercent: 0, valueScore: 0, detailsJson: { note: 'placeholder' } },
-          create: { visitId, indicatorCode: overall.code, valuePercent: 0, valueScore: 0, detailsJson: { note: 'placeholder' } },
+    const evaluated = this.ruleEngine.applyRules(
+      visit.toolVersion.logicRules.map(rule => ({
+        triggerExprJson: rule.triggerExprJson as any,
+        actionsJson: rule.actionsJson as any,
+      })),
+      state,
+    );
+
+    const scoringInput = evaluated.map(s => {
+      const original = visit.responses.find(r => r.question.code === s.questionCode);
+      return {
+        questionCode: s.questionCode,
+        answerJson: s.answerJson,
+        isNa: s.isNa,
+        isHidden: s.isHidden,
+        scoringJson: original?.question.scoringJson as any,
+      };
+    });
+
+    const scoreResult = this.scoringEngine.compute(
+      scoringInput,
+      visit.toolVersion.calculatedFields.map(cf => ({
+        code: cf.code,
+        outputType: cf.outputType,
+        formulaJson: cf.formulaJson as any,
+      })),
+      visit.toolVersion.indicators.map(ind => ({
+        code: ind.code,
+        indicatorType: ind.indicatorType,
+        definitionJson: ind.definitionJson as any,
+      })),
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const s of evaluated) {
+        const original = visit.responses.find(r => r.question.code === s.questionCode);
+        if (!original) continue;
+        await tx.visitResponse.update({
+          where: { visitId_questionId: { visitId, questionId: original.questionId } },
+          data: { isNa: s.isNa, isHidden: s.isHidden },
         });
       }
-    });
 
-    return { ok: true, status: 'submitted', submittedAt: now.toISOString() };
-  }
-
-  async listQuestionnaires(userId: string, orgId: bigint) {
-    const uid = BigInt(userId);
-    const membership = await this.prisma.organizationMembership.findUnique({ where: { orgId_userId: { orgId, userId: uid } } });
-    if (!membership || membership.status !== 'active') throw new ForbiddenException('Not a member of org');
-
-    const userAssignments = await this.prisma.userRoleAssignment.findMany({
-      where: { orgId, userId: uid },
-      include: { role: true },
-    });
-
-    const supervisorDepartmentIds = new Set<string>();
-    for (const assignment of userAssignments) {
-      if (assignment.role.code !== 'SUPERVISOR') continue;
-      for (const deptId of this.extractDepartmentIds(assignment.scopeJson)) {
-        supervisorDepartmentIds.add(deptId);
+      await tx.visitScore.deleteMany({ where: { visitId } });
+      for (const vs of scoreResult.visitScores) {
+        await tx.visitScore.create({
+          data: {
+            visitId,
+            indicatorCode: vs.indicatorCode,
+            valuePercent: vs.valuePercent,
+            valueScore: vs.valueScore,
+            detailsJson: vs.detailsJson,
+          },
+        });
       }
-    }
 
-    let whereClause: any = { orgId };
-
-    if (supervisorDepartmentIds.size > 0) {
-      const orgAssignments = await this.prisma.userRoleAssignment.findMany({
-        where: { orgId },
-        select: { userId: true, scopeJson: true },
+      await tx.supervisionVisit.update({
+        where: { id: visitId },
+        data: { status: 'submitted', submittedAt: now },
       });
-
-      const allowedCollectorIds = new Set<bigint>();
-      for (const assignment of orgAssignments) {
-        const assignmentDepartments = this.extractDepartmentIds(assignment.scopeJson);
-        if (assignmentDepartments.some((deptId) => supervisorDepartmentIds.has(deptId))) {
-          allowedCollectorIds.add(assignment.userId);
-        }
-      }
-
-      if (allowedCollectorIds.size === 0) return [];
-      whereClause = { orgId, collectorUserId: { in: [...allowedCollectorIds] } };
-    }
-
-    const visits = await this.prisma.supervisionVisit.findMany({
-      where: whereClause,
-      include: {
-        collector: { select: { id: true, email: true, fullName: true } },
-        facility: { select: { id: true, code: true, name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
     });
 
-    return visits.map((visit) => ({
-      id: String(visit.id),
-      orgId: String(visit.orgId),
-      toolVersionId: String(visit.toolVersionId),
-      facility: {
-        id: String(visit.facility.id),
-        code: visit.facility.code,
-        name: visit.facility.name,
-      },
-      collector: {
-        id: String(visit.collector.id),
-        email: visit.collector.email,
-        fullName: visit.collector.fullName,
-      },
-      visitDate: visit.visitDate.toISOString().slice(0, 10),
-      status: visit.status,
-      submittedAt: visit.submittedAt?.toISOString() ?? null,
-      createdAt: visit.createdAt.toISOString(),
-      updatedAt: visit.updatedAt.toISOString(),
-    }));
+    return {
+      ok: true,
+      status: 'submitted',
+      submittedAt: now.toISOString(),
+      rulesApplied: true,
+      computedIndicators: scoreResult.visitScores.length,
+    };
   }
+
+  async batchUpsertResponses(userId: string, visitId: bigint, dto: { items: any[] }) {
+    const uid = BigInt(userId);
+    const visit = await this.prisma.supervisionVisit.findUnique({ where: { id: visitId } });
+    if (!visit) throw new NotFoundException('Visit not found');
+    if (visit.collectorUserId !== uid) throw new ForbiddenException('Not your visit');
+    if (visit.status !== 'draft') throw new BadRequestException('Visit is not editable');
+
+    for (const item of dto.items || []) {
+      const questionId = BigInt(item.questionId);
+      await this.prisma.visitResponse.upsert({
+        where: { visitId_questionId: { visitId, questionId } },
+        update: {
+          answerJson: item.answerJson ?? undefined,
+          isNa: item.isNa ?? undefined,
+          naReason: item.naReason ?? undefined,
+          isHidden: item.isHidden ?? undefined,
+        },
+        create: {
+          visitId,
+          questionId,
+          answerJson: item.answerJson ?? null,
+          isNa: item.isNa ?? false,
+          naReason: item.naReason ?? null,
+          isHidden: item.isHidden ?? false,
+        },
+      });
+    }
+
+    return { ok: true, count: (dto.items || []).length };
+  }
+
 }
