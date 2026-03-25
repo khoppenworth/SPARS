@@ -1,0 +1,22 @@
+[Unit]
+Description=SPARS API (NestJS)
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=__SPARS_USER__
+Group=__SPARS_GROUP__
+WorkingDirectory=__SPARS_REPO__/apps/api
+EnvironmentFile=__SPARS_API_ENV__
+ExecStart=/usr/bin/node dist/main.js
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=__SPARS_REPO__/apps/api
+
+[Install]
+WantedBy=multi-user.target
