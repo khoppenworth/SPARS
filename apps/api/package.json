@@ -8,6 +8,7 @@
     "start": "node dist/main.js",
     "lint": "eslint .",
     "prisma:generate": "prisma generate",
+    "prisma:bootstrap": "prisma db push",
     "prisma:migrate": "prisma migrate deploy",
     "prisma:studio": "prisma studio"
   },

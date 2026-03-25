@@ -8,7 +8,9 @@
     "dev": "npm run -w @spars/api dev & npm run -w @spars/admin dev & npm run -w @spars/collect dev",
     "build": "npm run -w @spars/api build && npm run -w @spars/admin build && npm run -w @spars/collect build",
     "prisma:generate": "npm run -w @spars/api prisma:generate",
+    "prisma:bootstrap": "npm run -w @spars/api prisma:bootstrap && node apps/api/prisma/seed-runner.js",
     "prisma:migrate": "npm run -w @spars/api prisma:migrate",
-    "prisma:studio": "npm run -w @spars/api prisma:studio"
+    "prisma:studio": "npm run -w @spars/api prisma:studio",
+    "deploy:first": "bash scripts/deploy/first-deploy.sh"
   }
 }
